@@ -6,7 +6,7 @@
  *
  */
 
-pragma solidity ^0.4.17;
+pragma solidity ^0.4.16;
 
 import "./StandardToken.sol";
 import "./Ownable.sol";
@@ -18,14 +18,26 @@ contract WysToken is StandardToken, Ownable {
     uint8 public constant decimals = 18;
     string public version = "1.0";
 
+    address internal wyskerTeam;
     uint256 public totalSupply;
     TokenSale internal issuingTokenSale;
 
-    function WysToken(TokenSale _issuingTokenSale, uint256 _totalSupply) public {
+    function WysToken(TokenSale _issuingTokenSale, uint256 _totalSupply, address _wyskerTeam) public {
         issuingTokenSale = _issuingTokenSale;
 
+        wyskerTeam = _wyskerTeam;
         totalSupply = _totalSupply;
-        balances[owner] = totalSupply;
+        balances[wyskerTeam] = totalSupply;
+    }
+
+    function issueTokens(address _to, uint256 _value) onlyOwner public returns (bool) {
+        require(_to != address(0));
+        require(_value <= balances[wyskerTeam]);
+
+        balances[wyskerTeam] = balances[wyskerTeam].sub(_value);
+        balances[_to] = balances[_to].add(_value);
+        Transfer(msg.sender, _to, _value);
+        return true;
     }
 
     modifier canTransfer() {
@@ -37,11 +49,11 @@ contract WysToken is StandardToken, Ownable {
         return issuingTokenSale.hasEnded();
     }
 
-    function transfer(address _to, uint256 _value) canTransfer() public returns (bool) {
+    function transfer(address _to, uint256 _value) canTransfer public returns (bool) {
         return super.transfer(_to, _value);
     }
 
-    function transferFrom(address _from, address _to, uint256 _value) canTransfer() public returns (bool) {
+    function transferFrom(address _from, address _to, uint256 _value) canTransfer public returns (bool) {
         return super.transferFrom(_from, _to, _value);
     }
 }

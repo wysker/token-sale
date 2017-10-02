@@ -4,7 +4,7 @@
  * Used under an MIT License
  */
 
-pragma solidity ^0.4.17;
+pragma solidity ^0.4.16;
 
 import "./ERC20.sol";
 import "./SafeMath.sol";

@@ -1,13 +1,17 @@
 {
-  "name": "wysker-smart-contracts",
-  "version": "0.0.1",
-  "description": "Wysker Smart Contracts",
+  "name": "wysker-token-sale",
+  "version": "1.0.0",
+  "description": "wys Token and Token Sale Contracts",
   "scripts": {
     "build": "solcjs --bin --optimize ./src/*.sol --output-dir ./build/",
     "test": "mocha --require babel-core/register"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wysker/token-sale"
+  },
   "author": "Wysker UG (haftungsbeschränkt)",
-  "license": "Proprietary",
+  "license": "MIT",
   "homepage": "https://www.wystoken.org",
   "devDependencies": {
     "babel-core": "^6.26.0",
@@ -18,5 +22,6 @@
     "mocha": "^3.4.2",
     "solc": "^0.4.17",
     "web3": "^0.19.1"
-  }
+  },
+  "dependencies": {}
 }

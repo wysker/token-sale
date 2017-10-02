@@ -6,7 +6,7 @@
  *
  */
 
-pragma solidity ^0.4.17;
+pragma solidity ^0.4.16;
 
 import "./WysToken.sol";
 import "./SafeMath.sol";
@@ -23,24 +23,25 @@ contract TokenSale is Ownable, Pausable {
     uint256 public constant tokenSupply = 3000000000 * (10**decimals);
     uint256 public constant tokensForSale = 1782692308 * (10**decimals);
     uint256 public constant tokensForSaleDuringPresale = 500000000 * (10**decimals);
-    uint256 public constant exchangeRate = 13941; // atto-wys per one wei
+    uint256 public constant baseExchangeRate = 13941; // atto-wys per one wei
 
     // Timing
-    uint256 public presaleStartTime;
-    uint256 public tokenSaleStartTime; // Presale ends with main sale start
-    uint256 public tokenSaleEndTime;
+    uint256 public presaleStart;
+    uint256 public presaleEnd;
+    uint256 public tokenSaleStart;
+    uint256 public tokenSaleEnd;
 
     // Bonus
     uint8 public constant presaleBonusPercent = 30;
     uint8[] public tokenSaleBonusPercentByWeek = [15, 10, 5, 0];
 
     // Statistics
-    uint256 public weiRaised = 0;
+    uint256 public totalWeiRaised = 0;
     uint256 public weiRaisedDuringPresale = 0;
-    uint256 public tokensSold = 0;
+    uint256 public totalTokensSold = 0;
     uint256 public tokensSoldDuringPresale = 0;
-    uint256 public buyerCount = 0;
-    uint256 public presaleBuyerCount = 0;
+    uint256 public totalUniqueBuyers = 0;
+    uint256 public uniqueBuyersDuringPresale = 0;
     mapping(address => bool) knownBuyers; // Keeps track of which buyers have already made a purchase to avoid double-counting
 
     address public receivingMultisigWallet; // Wysker team multisig wallet to receive the funds
@@ -50,19 +51,20 @@ contract TokenSale is Ownable, Pausable {
     // Events
     event TokensPurchased(address indexed purchaser, address indexed receiver, uint256 amount);
 
-    function TokenSale(uint256 _presaleStartTime, uint256 _tokenSaleStartTime,
-        uint256 _tokenSaleEndTime, address _receivingMultisigWallet) public {
-        require(_presaleStartTime >= now);
-        require(_tokenSaleStartTime >= now && _tokenSaleStartTime > _presaleStartTime);
-        require(_tokenSaleEndTime >= now && _tokenSaleEndTime > _tokenSaleStartTime);
+    function TokenSale(uint256 _presaleStart, uint256 _tokenSaleStart,
+        uint256 _tokenSaleEnd, address _receivingMultisigWallet) public {
+        require(_presaleStart >= 0);
+        require(_tokenSaleStart > _presaleStart);
+        require(_tokenSaleEnd > _tokenSaleStart);
         require(_receivingMultisigWallet != address(0));
 
-        presaleStartTime = _presaleStartTime;
-        tokenSaleStartTime = _tokenSaleStartTime;
-        tokenSaleEndTime = _tokenSaleEndTime;
+        presaleStart = _presaleStart;
+        tokenSaleStart = _tokenSaleStart;
+        presaleEnd = tokenSaleStart; // Presale ends with main sale start
+        tokenSaleEnd = _tokenSaleEnd;
         receivingMultisigWallet = _receivingMultisigWallet;
 
-        token = new WysToken(this, tokenSupply);
+        token = new WysToken(this, tokenSupply, msg.sender);
     }
 
     function () external payable {
@@ -75,7 +77,7 @@ contract TokenSale is Ownable, Pausable {
         uint256 weiAmount = msg.value;
         uint256 tokensPerWei = currentExchangeRate();
         uint256 tokensToBePurchased = weiAmount.mul(tokensPerWei);
-        uint256 tokensAvailable = currentTokensAvailable();
+        uint256 tokensAvailable = tokensRemainingInStage();
 
         assert(tokensToBePurchased <= tokensAvailable);
 
@@ -84,7 +86,7 @@ contract TokenSale is Ownable, Pausable {
         recordTokensSold(tokensToBePurchased);
         recordPotentialNewBuyer();
 
-        token.transfer(tokenReceiver, tokensToBePurchased);
+        token.issueTokens(tokenReceiver, tokensToBePurchased);
 
         forwardFunds();
 
@@ -93,7 +95,7 @@ contract TokenSale is Ownable, Pausable {
 
     // Statistics
     function recordWeiReceived(uint256 weiAmount) internal {
-        weiRaised = weiRaised.add(weiAmount);
+        totalWeiRaised = totalWeiRaised.add(weiAmount);
 
         if (isPresale()) {
             weiRaisedDuringPresale = weiRaisedDuringPresale.add(weiAmount);
@@ -101,7 +103,7 @@ contract TokenSale is Ownable, Pausable {
     }
 
     function recordTokensSold(uint256 tokenAmount) internal {
-        tokensSold = tokensSold.add(tokenAmount);
+        totalTokensSold = totalTokensSold.add(tokenAmount);
 
         if (isPresale()) {
             tokensSoldDuringPresale = tokensSoldDuringPresale.add(tokenAmount);
@@ -113,10 +115,10 @@ contract TokenSale is Ownable, Pausable {
 
         if (!isKnownBuyer) {
             knownBuyers[msg.sender] = true;
-            buyerCount = buyerCount.add(1);
+            totalUniqueBuyers = totalUniqueBuyers.add(1);
 
             if (isPresale()) {
-                presaleBuyerCount = presaleBuyerCount.add(1);
+                uniqueBuyersDuringPresale = uniqueBuyersDuringPresale.add(1);
             }
         }
     }
@@ -129,15 +131,15 @@ contract TokenSale is Ownable, Pausable {
         bool hasEther = msg.value > 0;
         uint256 weiAmount = msg.value;
 
-        bool isWithinHardCap = weiRaised.add(weiAmount) <= hardCap;
+        bool isWithinHardCap = totalWeiRaised.add(weiAmount) <= hardCap;
 
         return hasStarted() &&
-            !hasEnded() &&
-            hasEther &&
-            isWithinHardCap;
+        !hasEnded() &&
+        hasEther &&
+        isWithinHardCap;
     }
 
-    function currentTokensAvailable() public constant returns (uint256) {
+    function tokensRemainingInStage() public constant returns (uint256) {
         uint256 initialTokensAvailable;
 
         if (isPresale()) {
@@ -146,19 +148,19 @@ contract TokenSale is Ownable, Pausable {
             initialTokensAvailable = tokensForSale;
         }
 
-        return initialTokensAvailable.sub(tokensSold);
+        return initialTokensAvailable.sub(totalTokensSold);
     }
 
-    function currentBonus() public constant returns (uint256) {
+    function currentBonusPercent() public constant returns (uint256) {
         uint256 bonus;
 
         if (isPresale()) {
             bonus = presaleBonusPercent;
-        } else if (now < tokenSaleStartTime + 7 days) {
+        } else if (now < tokenSaleStart + 7 days) {
             bonus = tokenSaleBonusPercentByWeek[0];
-        } else if (now < tokenSaleStartTime + 14 days) {
+        } else if (now < tokenSaleStart + 14 days) {
             bonus = tokenSaleBonusPercentByWeek[1];
-        } else if (now < tokenSaleStartTime + 21 days) {
+        } else if (now < tokenSaleStart + 21 days) {
             bonus = tokenSaleBonusPercentByWeek[2];
         } else {
             bonus = tokenSaleBonusPercentByWeek[3];
@@ -169,23 +171,23 @@ contract TokenSale is Ownable, Pausable {
 
     // atto-wys per wei
     function currentExchangeRate() public constant returns (uint256) {
-        return (exchangeRate.mul(currentBonus().add(100))).div(100);
+        return (baseExchangeRate.mul(currentBonusPercent().add(100))).div(100);
     }
 
     function isPresale() public constant returns (bool) {
-        return now < tokenSaleStartTime;
+        return now < presaleEnd;
     }
 
     function hasStarted() public constant returns (bool) {
-        return now >= presaleStartTime;
+        return now >= presaleStart;
     }
 
     function hasEnded() public constant returns (bool) {
         return hasHardCapBeenReached() ||
-            now > tokenSaleEndTime;
+        now > tokenSaleEnd;
     }
 
     function hasHardCapBeenReached() public constant returns (bool) {
-        return weiRaised >= hardCap;
+        return totalWeiRaised >= hardCap;
     }
 }
